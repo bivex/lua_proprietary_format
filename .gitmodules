@@ -4,3 +4,6 @@
 [submodule "luadec"]
 	path = luadec
 	url = https://github.com/bivex/luadec
+[submodule "apultra"]
+	path = apultra
+	url = https://github.com/bivex/apultra
