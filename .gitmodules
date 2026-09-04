@@ -1,0 +1,6 @@
+[submodule "gen_random_protocol"]
+	path = gen_random_protocol
+	url = https://github.com/bivex/gen_random_protocol
+[submodule "luadec"]
+	path = luadec
+	url = https://github.com/bivex/luadec
