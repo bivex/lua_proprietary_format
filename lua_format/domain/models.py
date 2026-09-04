@@ -1,11 +1,15 @@
 """
-Domain Entity and Value Object Models for Lua 5.1 Bytecode and Custom Chunks.
+Domain Entity and Value Object Models for Lua 5.1 and Lua 5.5 Bytecode and Custom Chunks.
 """
 
 from dataclasses import dataclass, field
 from enum import IntEnum, auto
 from typing import Any, List, Optional, Tuple, Union
 
+
+# ==============================================================================
+# Lua 5.1 Opcodes and Models
+# ==============================================================================
 
 class OpCode(IntEnum):
     OP_MOVE = 0
@@ -74,7 +78,6 @@ class OpArgMask(IntEnum):
     OpArgK = 3  # argument is a constant or register/constant
 
 
-# (T, A, B, C, mode)
 OP_MODES: List[Tuple[int, int, OpArgMask, OpArgMask, OpMode]] = [
     (0, 1, OpArgMask.OpArgR, OpArgMask.OpArgN, OpMode.iABC),   # OP_MOVE
     (0, 1, OpArgMask.OpArgK, OpArgMask.OpArgN, OpMode.iABx),   # OP_LOADK
@@ -117,6 +120,127 @@ OP_MODES: List[Tuple[int, int, OpArgMask, OpArgMask, OpMode]] = [
 ]
 
 
+# ==============================================================================
+# Lua 5.5 Opcodes and Models
+# ==============================================================================
+
+LUA55_OPCODE_NAMES = [
+    "MOVE", "LOADI", "LOADF", "LOADK", "LOADKX", "LOADFALSE", "LFALSESKIP",
+    "LOADTRUE", "LOADNIL", "GETUPVAL", "SETUPVAL", "GETTABUP", "GETTABLE",
+    "GETI", "GETFIELD", "SETTABUP", "SETTABLE", "SETI", "SETFIELD", "NEWTABLE",
+    "SELF", "ADDI", "ADDK", "SUBK", "MULK", "MODK", "POWK", "DIVK", "IDIVK",
+    "BANDK", "BORK", "BXORK", "SHRI", "SHLI", "ADD", "SUB", "MUL", "MOD", "POW",
+    "DIV", "IDIV", "BAND", "BOR", "BXOR", "SHL", "SHR", "MMBIN", "MMBINI",
+    "MMBINK", "UNM", "BNOT", "NOT", "LEN", "CONCAT", "CLOSE", "TBC", "JMP",
+    "EQ", "LT", "LE", "EQK", "EQI", "LTI", "LEI", "GTI", "GEI", "TEST", "TESTSET",
+    "CALL", "TAILCALL", "RETURN", "RETURN0", "RETURN1", "FORLOOP", "FORPREP",
+    "TFORPREP", "TFORCALL", "TFORLOOP", "SETLIST", "CLOSURE", "VARARG",
+    "VARARGPREP", "EXTRAARG", "GETVARG", "ERRNNIL"
+]
+
+NUM_OPCODES_55 = len(LUA55_OPCODE_NAMES)  # 85
+
+LUA55_NAME_TO_OPCODE = {name: i for i, name in enumerate(LUA55_OPCODE_NAMES)}
+
+
+class Lua55OpMode(IntEnum):
+    iABC = 0
+    iABx = 1
+    iAsBx = 2
+    iAx = 3
+    isJ = 4
+    ivABC = 5
+
+
+LUA55_OPMODES: List[Lua55OpMode] = [
+    Lua55OpMode.iABC,   # MOVE
+    Lua55OpMode.iAsBx,  # LOADI
+    Lua55OpMode.iAsBx,  # LOADF
+    Lua55OpMode.iABx,   # LOADK
+    Lua55OpMode.iABx,   # LOADKX
+    Lua55OpMode.iABC,   # LOADFALSE
+    Lua55OpMode.iABC,   # LFALSESKIP
+    Lua55OpMode.iABC,   # LOADTRUE
+    Lua55OpMode.iABC,   # LOADNIL
+    Lua55OpMode.iABC,   # GETUPVAL
+    Lua55OpMode.iABC,   # SETUPVAL
+    Lua55OpMode.iABC,   # GETTABUP
+    Lua55OpMode.iABC,   # GETTABLE
+    Lua55OpMode.iABC,   # GETI
+    Lua55OpMode.iABC,   # GETFIELD
+    Lua55OpMode.iABC,   # SETTABUP
+    Lua55OpMode.iABC,   # SETTABLE
+    Lua55OpMode.iABC,   # SETI
+    Lua55OpMode.iABC,   # SETFIELD
+    Lua55OpMode.iABC,   # NEWTABLE
+    Lua55OpMode.iABC,   # SELF
+    Lua55OpMode.iABC,   # ADDI
+    Lua55OpMode.iABC,   # ADDK
+    Lua55OpMode.iABC,   # SUBK
+    Lua55OpMode.iABC,   # MULK
+    Lua55OpMode.iABC,   # MODK
+    Lua55OpMode.iABC,   # POWK
+    Lua55OpMode.iABC,   # DIVK
+    Lua55OpMode.iABC,   # IDIVK
+    Lua55OpMode.iABC,   # BANDK
+    Lua55OpMode.iABC,   # BORK
+    Lua55OpMode.iABC,   # BXORK
+    Lua55OpMode.iABC,   # SHRI
+    Lua55OpMode.iABC,   # SHLI
+    Lua55OpMode.iABC,   # ADD
+    Lua55OpMode.iABC,   # SUB
+    Lua55OpMode.iABC,   # MUL
+    Lua55OpMode.iABC,   # MOD
+    Lua55OpMode.iABC,   # POW
+    Lua55OpMode.iABC,   # DIV
+    Lua55OpMode.iABC,   # IDIV
+    Lua55OpMode.iABC,   # BAND
+    Lua55OpMode.iABC,   # BOR
+    Lua55OpMode.iABC,   # BXOR
+    Lua55OpMode.iABC,   # SHL
+    Lua55OpMode.iABC,   # SHR
+    Lua55OpMode.iABC,   # MMBIN
+    Lua55OpMode.iABC,   # MMBINI
+    Lua55OpMode.iABC,   # MMBINK
+    Lua55OpMode.iABC,   # UNM
+    Lua55OpMode.iABC,   # BNOT
+    Lua55OpMode.iABC,   # NOT
+    Lua55OpMode.iABC,   # LEN
+    Lua55OpMode.iABC,   # CONCAT
+    Lua55OpMode.iABC,   # CLOSE
+    Lua55OpMode.iABC,   # TBC
+    Lua55OpMode.isJ,    # JMP
+    Lua55OpMode.iABC,   # EQ
+    Lua55OpMode.iABC,   # LT
+    Lua55OpMode.iABC,   # LE
+    Lua55OpMode.iABC,   # EQK
+    Lua55OpMode.iABC,   # EQI
+    Lua55OpMode.iABC,   # LTI
+    Lua55OpMode.iABC,   # LEI
+    Lua55OpMode.iABC,   # GTI
+    Lua55OpMode.iABC,   # GEI
+    Lua55OpMode.iABC,   # TEST
+    Lua55OpMode.iABC,   # TESTSET
+    Lua55OpMode.iABC,   # CALL
+    Lua55OpMode.iABC,   # TAILCALL
+    Lua55OpMode.iABC,   # RETURN
+    Lua55OpMode.iABC,   # RETURN0
+    Lua55OpMode.iABC,   # RETURN1
+    Lua55OpMode.iABx,   # FORLOOP
+    Lua55OpMode.iABx,   # FORPREP
+    Lua55OpMode.iABx,   # TFORPREP
+    Lua55OpMode.iABC,   # TFORCALL
+    Lua55OpMode.iABx,   # TFORLOOP
+    Lua55OpMode.iABC,   # SETLIST
+    Lua55OpMode.iABx,   # CLOSURE
+    Lua55OpMode.iABC,   # VARARG
+    Lua55OpMode.iABC,   # VARARGPREP
+    Lua55OpMode.iAx,    # EXTRAARG
+    Lua55OpMode.ivABC,  # GETVARG
+    Lua55OpMode.iABx,   # ERRNNIL
+]
+
+
 class StandardConstantTag(IntEnum):
     TNIL = 0
     TBOOLEAN = 1
@@ -126,19 +250,23 @@ class StandardConstantTag(IntEnum):
 
 @dataclass
 class Instruction:
-    op: int                    # Standard OpCode (0..37)
+    op: int                    # OpCode (0..37 for 5.1, 0..84 for 5.5)
     a: int = 0                 # 8 bits (0..255)
-    b: int = 0                 # 9 bits (0..511)
-    c: int = 0                 # 9 bits (0..511)
-    bx: int = 0                # 18 bits unsigned (0..262143)
-    sbx: int = 0               # 18 bits signed (-131071..131072)
-    mode: OpMode = OpMode.iABC
+    b: int = 0                 # 9 bits (5.1) or 8 bits (5.5)
+    c: int = 0                 # 9 bits (5.1) or 8 bits (5.5)
+    k: int = 0                 # 1 bit flag (5.5)
+    bx: int = 0                # 18 bits (5.1) or 17 bits (5.5)
+    sbx: int = 0               # signed bx
+    ax: int = 0                # 25 bits (5.5)
+    sj: int = 0                # signed jump (5.5)
+    mode: Union[OpMode, Lua55OpMode] = OpMode.iABC
 
     def __post_init__(self) -> None:
-        if self.mode == OpMode.iABx:
-            self.sbx = self.bx - 131071
-        elif self.mode == OpMode.iAsBx:
-            self.bx = (self.sbx + 131071) & 0x3FFFF
+        if isinstance(self.mode, OpMode):
+            if self.mode == OpMode.iABx:
+                self.sbx = self.bx - 131071
+            elif self.mode == OpMode.iAsBx:
+                self.bx = (self.sbx + 131071) & 0x3FFFF
 
 
 @dataclass
@@ -174,7 +302,7 @@ class Proto:
 @dataclass
 class ChunkHeader:
     signature: bytes = b"\x1bLua"
-    version: int = 0x51
+    version: int = 0x51         # 0x51 for Lua 5.1, 0x55 for Lua 5.5
     format_version: int = 0
     endianness: int = 1         # 1 = little-endian, 0 = big-endian
     size_int: int = 4

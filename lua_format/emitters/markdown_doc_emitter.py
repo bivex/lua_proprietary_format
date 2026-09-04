@@ -1,8 +1,9 @@
 """
 Markdown RFC Specification Emitter for Proprietary Lua Formats.
+Supports Lua 5.1 and Lua 5.5.
 """
 
-from lua_format.domain.models import OPCODE_NAMES, NUM_OPCODES
+from lua_format.domain.models import OPCODE_NAMES, NUM_OPCODES, LUA55_OPCODE_NAMES, NUM_OPCODES_55
 from lua_format.domain.profile import FormatProfile
 
 
@@ -15,10 +16,13 @@ class MarkdownDocEmitter:
     def emit(self) -> str:
         p = self.p
 
+        op_names = LUA55_OPCODE_NAMES if p.lua_version == "5.5" else OPCODE_NAMES
+        n_ops = NUM_OPCODES_55 if p.lua_version == "5.5" else NUM_OPCODES
+
         # Opcode table rows
         op_rows = []
-        for std_op in range(NUM_OPCODES):
-            name = OPCODE_NAMES[std_op]
+        for std_op in range(n_ops):
+            name = op_names[std_op]
             prop_op = p.opcode_map.get(std_op, std_op)
             op_rows.append(f"| `0x{std_op:02X}` (`{std_op:2d}`) | `OP_{name}` | `0x{prop_op:02X}` (`{prop_op:2d}`) |")
         opcode_table = "\n".join(op_rows)
@@ -41,7 +45,7 @@ class MarkdownDocEmitter:
 
 - **Format Profile Name:** `{p.name}`
 - **Entropy Seed:** `{p.seed}`
-- **Target Lua VM:** Lua 5.1 (PUC-Rio compatible)
+- **Target Lua VM:** Lua {p.lua_version} (PUC-Rio compatible)
 - **Endianness:** `{p.endianness}`
 - **Bitfield Layout:** `{p.bitfield_layout}`
 - **Instruction XOR Mask:** `0x{p.instruction_xor_mask:08X}`
@@ -57,7 +61,7 @@ This proprietary format is designed to provide binary protection against standar
 
 ### Defense Layers
 1. **Signature & Header Scrambling:** Replaces standard `\\x1bLua` with `{repr(p.magic)[1:]}` (`{p.magic.hex()}`), causing standard decompilers to immediately abort with syntax errors or bad header exceptions.
-2. **Opcode Permutation:** All 38 Lua 5.1 virtual machine opcodes are shuffled via seed `{p.seed[:8]}...`. Any bypass of header checks results in invalid instruction dispatch, invalid branch destinations, or decompiler segmentation faults.
+2. **Opcode Permutation:** All {n_ops} Lua {p.lua_version} virtual machine opcodes are shuffled via seed `{p.seed[:8]}...`. Any bypass of header checks results in invalid instruction dispatch, invalid branch destinations, or decompiler segmentation faults.
 3. **Instruction Bitfield Scrambling & XOR Masking:** Instruction words are encoded using the `{p.bitfield_layout}` layout and bitwise XOR masked with `0x{p.instruction_xor_mask:08X}`.
 4. **Constant Type Tag Shuffling:** Data types (NIL, BOOLEAN, NUMBER, STRING) are mapped to non-standard integer tags.
 5. **Proto Section Reordering:** Chunk serialization order is altered from standard order to `{ ' -> '.join(p.proto_section_order) }`.
@@ -70,7 +74,7 @@ This proprietary format is designed to provide binary protection against standar
 | Offset (Bytes) | Field Name | Proprietary Value | Description |
 |---|---|---|---|
 | `0 .. 3` | `magic` | `{repr(p.magic)[1:]}` (`0x{p.magic.hex().upper()}`) | Proprietary Signature constant |
-| `4` | `version` | `0x{p.version:02X}` | VM Version byte |
+| `4` | `version` | `0x{p.version:02X}` | VM Version byte (0x{p.version:02X} for Lua {p.lua_version}) |
 | `5` | `format` | `0x{p.format_version:02X}` | Format identification version |
 | `6` | `endianness` | `0x01` (little) / `0x00` (big) | Wire byte order |
 | `7` | `size_int` | `0x04` | `sizeof(int)` |
@@ -81,7 +85,7 @@ This proprietary format is designed to provide binary protection against standar
 
 ---
 
-## 3. Opcode Translation Matrix
+## 3. Opcode Translation Matrix (Lua {p.lua_version})
 
 | Standard Opcode | Mnemonic | Proprietary Opcode |
 |---|---|---|

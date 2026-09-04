@@ -1,14 +1,14 @@
 # Lua Proprietary Format Generator & Anti-Decompiler Security Suite
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
-[![Lua 5.1](https://img.shields.io/badge/lua-5.1.5-blue.svg)](https://www.lua.org/)
+[![Lua 5.1 & 5.5](https://img.shields.io/badge/lua-5.1%20%7C%205.5-blue.svg)](https://www.lua.org/)
 [![Decompiler Protection](https://img.shields.io/badge/luadec-blocked-success.svg)](luadec)
 [![Architecture](https://img.shields.io/badge/architecture-DDD%20%2F%20Hexagonal-blueviolet.svg)](gen_random_protocol)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **gen_lua_format** is a high-performance **proprietary Lua bytecode format generator, compiler, and anti-reverse-engineering security suite** in Python, built following the Domain-Driven Design (DDD) & Hexagonal Architecture principles of **[gen_random_protocol](https://github.com/bivex/gen_random_protocol)**.
 
-It generates cryptographically seeded, customized Lua binary chunk formats that **completely block and defeat decompilers and disassemblers (such as `luadec`, `unluac`, `ChunkSpy`, and `LAT`)**, while guaranteeing 100% operational execution both via a native compiled C VM runner and via a pure Lua in-memory loader (`loader.lua`).
+It generates cryptographically seeded, customized Lua binary chunk formats for **Lua 5.1 (38 opcodes)** and **Lua 5.5 (85 opcodes)** that **completely block and defeat decompilers and disassemblers (such as `luadec`, `unluac`, `ChunkSpy`, and `LAT`)**, while guaranteeing 100% operational execution both via a native compiled C VM runner and via a pure Lua in-memory loader (`loader.lua`).
 
 ---
 
@@ -31,7 +31,7 @@ It generates cryptographically seeded, customized Lua binary chunk formats that 
     │             Domain Layer             │    │            Adapters Layer            │
     │  - LuaFormatGenerator (Seeded RNG)   │    │  - StandardLua51Reader / Writer      │
     │  - FormatProfile (Entity & Spec)     │    │  - ProprietaryLuaReader / Writer     │
-    │  - 38 Lua 5.1 OpCode Matrix          │    │  - InstructionBitfieldCodec          │
+    │  - Lua 5.1 & 5.5 OpCode Matrix       │    │  - InstructionBitfieldCodec (5.1/5.5)│
     │  - Bitfield Layouts & XOR Transform  │    │  - 22-Byte Framing Envelope Codec    │
     │  - Constant Tag Remapping            │    │  - CRunnerEmitter (lua_runner.c)     │
     │  - Proto Section Reordering          │    │  - LuaLoaderEmitter (loader.lua)     │
@@ -47,8 +47,8 @@ It generates cryptographically seeded, customized Lua binary chunk formats that 
 | Security Layer | Implementation Details | Anti-Decompiler Impact |
 |---|---|---|
 | **1. Custom Header Signature** | Replaces standard `\x1bLua` with random or configured 4-byte magic (e.g., `\x7fU52`, `\x1bSEC`, `\x00PLU`). | `luadec` immediately crashes or aborts with: `bad header in precompiled chunk` or `unexpected symbol` (Exit code 1). |
-| **2. Opcode Permutation (0..37)** | Bijective pseudo-random shuffling of all 38 Lua 5.1 VM instructions based on seed. | Even if header checks are bypassed, `luadec` maps instructions to incorrect AST nodes, causing syntax corruption or decompiler segfaults. |
-| **3. Bitfield Layout Customization** | Reorders and shifts bit positions for registers (`OP_A_C_B`, `OP_A_B_C`, `A_OP_C_B`, `B_C_A_OP`, `C_B_A_OP`, `A_B_C_OP`). | Decompilers fail to extract A, B, C, Bx, and sBx registers. |
+| **2. Opcode Permutation (5.1: 38 ops, 5.5: 85 ops)** | Bijective pseudo-random shuffling of all VM instructions based on cryptographic seed. | Even if header checks are bypassed, `luadec` maps instructions to incorrect AST nodes, causing syntax corruption or decompiler segfaults. |
+| **3. Bitfield Layout Customization** | Reorders and shifts bit positions for registers (`OP_A_C_B`, `B_C_A_OP`, `5.5_OP_A_k_B_C`, `5.5_C_B_k_A_OP`, `5.5_k_B_C_A_OP`, etc.). | Decompilers fail to extract A, B, C, k, Bx, Ax, and sJ registers. |
 | **4. Instruction Word XOR Masking** | 32-bit pseudo-random mask applied to raw instruction words (`ins ^ xor_mask`). | Instruction stream appears as high-entropy random data. |
 | **5. Constant Type Tag Shuffling** | Remaps standard type tags (`TNIL`, `TBOOLEAN`, `TNUMBER`, `TSTRING`). | Constant tables become unparsable by standard tools. |
 | **6. Proto Section Reordering** | Customizes chunk serialization order (Code, Constants, Subprotos, Debug). | Standard parsers read numbers as strings, causing fatal parsing errors or buffer overflows. |
@@ -77,10 +77,13 @@ python3 gen_lua_format.py verify
 
 ### 2. Generate a Proprietary Format Profile
 ```bash
-# Generate a hardened profile with RFC spec, C runner, and Lua loader
-python3 gen_lua_format.py generate --seed a1b2c3d4e5f60718293a4b5c6d7e8f90 --name MY_SECURE_LUA -o out/my_format --build-runner
+# Generate a hardened Lua 5.1 profile with RFC spec, C runner, and Lua loader
+python3 gen_lua_format.py generate -lv 5.1 --seed a1b2c3d4e5f60718293a4b5c6d7e8f90 --name MY_SECURE_LUA -o out/my_format_51 --build-runner
+
+# Generate a hardened Lua 5.5 profile (85 opcodes)
+python3 gen_lua_format.py generate -lv 5.5 --seed 9876543210fedcba9876543210fedcba --preset hardened -o out/my_format_55
 ```
-Output artifacts generated in `out/my_format/`:
+Output artifacts generated in output directory:
 - `LUA_FORMAT_SPEC.md` — RFC-style documentation of the format and opcode translation matrix;
 - `format_profile.yaml` / `format_manifest.json` — Machine-readable format profile;
 - `lua_custom_runner.c` — Standalone C runner source code;
@@ -91,7 +94,7 @@ Output artifacts generated in `out/my_format/`:
 
 ### 3. Protect Lua Scripts (Encode)
 ```bash
-python3 gen_lua_format.py protect myscript.lua -o out/my_format/myscript.luc --profile out/my_format/format_profile.yaml
+python3 gen_lua_format.py protect myscript.lua -o out/my_format_51/myscript.luc --profile out/my_format_51/format_profile.yaml
 ```
 
 ---

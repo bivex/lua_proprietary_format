@@ -9,7 +9,7 @@ from random import Random
 import unittest
 
 from lua_format.domain.generator import LuaFormatGenerator
-from lua_format.domain.models import LuaChunk
+from lua_format.domain.models import LuaChunk, Instruction
 from lua_format.codecs.standard_codec import StandardLua51Reader, StandardLua51Writer
 from lua_format.codecs.proprietary_codec import ProprietaryLuaReader, ProprietaryLuaWriter
 
@@ -116,6 +116,98 @@ class TestLuaCodecs(unittest.TestCase):
                     self.assertTrue(len(res.stdout) > 0)
                 finally:
                     Path(tmp_luac).unlink(missing_ok=True)
+
+
+    def test_lua55_instruction_encoding_decoding_roundtrip(self):
+        from lua_format.codecs.instruction_codec import (
+            decode_standard_instruction,
+            encode_standard_instruction,
+            encode_proprietary_instruction,
+            decode_proprietary_instruction,
+            LAYOUT_DEFINITIONS_55
+        )
+        from lua_format.domain.models import Lua55OpMode, NUM_OPCODES_55
+
+        # Test cases for each Lua 5.5 instruction format mode
+        test_instructions = [
+            # iABC: MOVE R(A) R(B)
+            Instruction(op=0, a=5, b=12, c=0, k=0, mode=Lua55OpMode.iABC),
+            # ivABC: GETVARG R(A) C R(B)
+            Instruction(op=83, a=2, b=4, c=7, k=1, mode=Lua55OpMode.ivABC),
+            # iABx: LOADK R(A) Kst(Bx)
+            Instruction(op=3, a=10, bx=12345, mode=Lua55OpMode.iABx),
+            # iAsBx: LOADI R(A) sBx
+            Instruction(op=1, a=8, sbx=-32000, mode=Lua55OpMode.iAsBx),
+            # iAx: EXTRAARG Ax
+            Instruction(op=82, ax=16777200, mode=Lua55OpMode.iAx),
+            # isJ: JMP sJ
+            Instruction(op=56, sj=-500, mode=Lua55OpMode.isJ),
+        ]
+
+        # 1. Standard encode/decode roundtrip
+        for ins in test_instructions:
+            raw = encode_standard_instruction(ins, lua_version="5.5")
+            decoded = decode_standard_instruction(raw, lua_version="5.5")
+            self.assertEqual(ins.op, decoded.op)
+            if ins.mode not in (Lua55OpMode.iAx, Lua55OpMode.isJ):
+                self.assertEqual(ins.a, decoded.a)
+            if ins.mode in (Lua55OpMode.iABC, Lua55OpMode.ivABC):
+                self.assertEqual(ins.b, decoded.b)
+                self.assertEqual(ins.c, decoded.c)
+                self.assertEqual(ins.k, decoded.k)
+            elif ins.mode == Lua55OpMode.iABx:
+                self.assertEqual(ins.bx, decoded.bx)
+            elif ins.mode == Lua55OpMode.iAsBx:
+                self.assertEqual(ins.sbx, decoded.sbx)
+            elif ins.mode == Lua55OpMode.iAx:
+                self.assertEqual(ins.ax, decoded.ax)
+            elif ins.mode == Lua55OpMode.isJ:
+                self.assertEqual(ins.sj, decoded.sj)
+
+        # 2. Proprietary encode/decode roundtrip across all 5.5 layouts & XOR masks
+        rng = Random(12345)
+        shuffled_ops = list(range(NUM_OPCODES_55))
+        rng.shuffle(shuffled_ops)
+        opcode_map = {std_op: prop_op for prop_op, std_op in enumerate(shuffled_ops)}
+        inv_map = {prop_op: std_op for prop_op, std_op in enumerate(shuffled_ops)}
+        xor_masks = [0, 0xA5A5A5A5, 0xFFFFFFFF, 0x12345678]
+
+        for layout in LAYOUT_DEFINITIONS_55.keys():
+            for xor_mask in xor_masks:
+                for ins in test_instructions:
+                    prop_raw = encode_proprietary_instruction(
+                        ins, layout=layout, opcode_map=opcode_map, xor_mask=xor_mask, lua_version="5.5"
+                    )
+                    recovered = decode_proprietary_instruction(
+                        prop_raw, layout=layout, inv_opcode_map=inv_map, xor_mask=xor_mask, lua_version="5.5"
+                    )
+                    self.assertEqual(ins.op, recovered.op, f"Opcode mismatch in {layout} xor=0x{xor_mask:08X}")
+                    if ins.mode not in (Lua55OpMode.iAx, Lua55OpMode.isJ):
+                        self.assertEqual(ins.a, recovered.a, f"A mismatch in {layout}")
+                    if ins.mode in (Lua55OpMode.iABC, Lua55OpMode.ivABC):
+                        self.assertEqual(ins.b, recovered.b, f"B mismatch in {layout}")
+                        self.assertEqual(ins.c, recovered.c, f"C mismatch in {layout}")
+                        self.assertEqual(ins.k, recovered.k, f"k mismatch in {layout}")
+                    elif ins.mode == Lua55OpMode.iABx:
+                        self.assertEqual(ins.bx, recovered.bx, f"Bx mismatch in {layout}")
+                    elif ins.mode == Lua55OpMode.iAsBx:
+                        self.assertEqual(ins.sbx, recovered.sbx, f"sBx mismatch in {layout}")
+                    elif ins.mode == Lua55OpMode.iAx:
+                        self.assertEqual(ins.ax, recovered.ax, f"Ax mismatch in {layout}")
+                    elif ins.mode == Lua55OpMode.isJ:
+                        self.assertEqual(ins.sj, recovered.sj, f"sJ mismatch in {layout}")
+
+    def test_lua55_profile_generation(self):
+        from lua_format.application.format_service import LuaFormatService
+        from lua_format.domain.models import NUM_OPCODES_55
+        service = LuaFormatService()
+
+        for preset in ["hardened", "popcap_style", "stealth"]:
+            profile = service.generate_profile(lua_version="5.5", preset=preset)
+            self.assertEqual(profile.lua_version, "5.5")
+            self.assertEqual(len(profile.opcode_map), NUM_OPCODES_55)
+            self.assertEqual(len(profile.inv_opcode_map), NUM_OPCODES_55)
+            self.assertTrue(profile.bitfield_layout.startswith("5.5_"))
 
 
 if __name__ == "__main__":

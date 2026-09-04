@@ -70,7 +70,8 @@ class ProprietaryLuaWriter:
                 ins=ins,
                 layout=self.p.bitfield_layout,
                 opcode_map=self.p.opcode_map,
-                xor_mask=self.p.instruction_xor_mask
+                xor_mask=self.p.instruction_xor_mask,
+                lua_version=self.p.lua_version
             )
             self.out.extend(struct.pack(f"{self.endian}I", encoded_u32))
 
@@ -232,7 +233,8 @@ class ProprietaryLuaReader:
                 raw_u32=raw_u32,
                 layout=self.p.bitfield_layout,
                 inv_opcode_map=self.p.inv_opcode_map,
-                xor_mask=self.p.instruction_xor_mask
+                xor_mask=self.p.instruction_xor_mask,
+                lua_version=self.p.lua_version
             )
             code.append(ins)
         proto.code = code

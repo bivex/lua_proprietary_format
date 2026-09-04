@@ -42,6 +42,7 @@ class LuaFormatService:
     def generate_profile(self,
                          seed_hex: Optional[str] = None,
                          name: Optional[str] = None,
+                         lua_version: str = "5.1",
                          preset: Optional[str] = None,
                          endianness: Optional[str] = None,
                          bitfield_layout: Optional[str] = None,
@@ -59,6 +60,7 @@ class LuaFormatService:
         gen = LuaFormatGenerator(rng, seed)
         profile = gen.generate(
             name=name,
+            lua_version=lua_version,
             endianness=endianness,
             bitfield_layout=bitfield_layout,
             instruction_xor=instruction_xor,

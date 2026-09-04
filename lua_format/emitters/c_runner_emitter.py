@@ -1,9 +1,11 @@
 """
 C Standalone Runner and Native VM Loader Emitter for Proprietary Lua Formats.
 Generates self-contained C code with embedded CRC-32, HMAC-SHA256, custom undump,
-instruction bitfield unpacker, opcode remapping, and Lua 5.1 C API runner.
+instruction bitfield unpacker, opcode remapping, and Lua C API runner.
+Supports Lua 5.1 and Lua 5.5.
 """
 
+from lua_format.domain.models import NUM_OPCODES, NUM_OPCODES_55
 from lua_format.domain.profile import FormatProfile
 from lua_format.codecs.instruction_codec import LAYOUT_DEFINITIONS
 
@@ -16,10 +18,29 @@ class CRunnerEmitter:
 
     def emit(self) -> str:
         p = self.p
-        pos_op, pos_a, pos_b, pos_c, pos_bx = LAYOUT_DEFINITIONS.get(p.bitfield_layout, (0, 6, 23, 14, 14))
+        is_55 = (p.lua_version == "5.5" or p.bitfield_layout.startswith("5.5_"))
+        num_ops = NUM_OPCODES_55 if is_55 else NUM_OPCODES
+
+        if is_55:
+            pos_op, pos_a, pos_k, pos_b, pos_c, pos_bx, pos_ax, pos_sj = LAYOUT_DEFINITIONS.get(
+                p.bitfield_layout, (0, 7, 15, 16, 24, 15, 7, 7)
+            )
+            mask_op = "0x7F"
+            mask_b = "0xFF"
+            mask_c = "0xFF"
+            mask_bx = "0x1FFFF"
+        else:
+            pos_op, pos_a, pos_b, pos_c, pos_bx = LAYOUT_DEFINITIONS.get(
+                p.bitfield_layout, (0, 6, 23, 14, 14)
+            )
+            pos_k, pos_ax, pos_sj = 0, 0, 0
+            mask_op = "0x3F"
+            mask_b = "0x1FF"
+            mask_c = "0x1FF"
+            mask_bx = "0x3FFFF"
 
         # Build C opcode mapping table: prop_op -> std_op
-        inv_op_table = ", ".join(str(p.inv_opcode_map.get(i, i)) for i in range(38))
+        inv_op_table = ", ".join(str(p.inv_opcode_map.get(i, i)) for i in range(num_ops))
         
         # Build C const tag mapping table: prop_tag -> std_tag
         inv_tag_cases = []
@@ -68,6 +89,7 @@ class CRunnerEmitter:
 
         c_source = f"""/*
  * Auto-generated Standalone Runner for Proprietary Lua Format: {p.name}
+ * Target Lua Version: {p.lua_version}
  * Format Seed: {p.seed}
  * Bitfield Layout: {p.bitfield_layout} | XOR Mask: 0x{p.instruction_xor_mask:08X}
  * String XOR: 0x{p.string_xor_key:02X}
@@ -92,22 +114,24 @@ class CRunnerEmitter:
 #include "lzio.h"
 #include "lopcodes.h"
 
+#define PROP_NUM_OPCODES {num_ops}
 #define PROP_MAGIC_LEN {magic_len}
 static const uint8_t PROP_MAGIC[PROP_MAGIC_LEN] = {{ {magic_hex_bytes} }};
-static const uint8_t PROP_TO_STD_OPCODE[38] = {{ {inv_op_table} }};
+static const uint8_t PROP_TO_STD_OPCODE[PROP_NUM_OPCODES] = {{ {inv_op_table} }};
 
 #define PROP_POS_OP  {pos_op}
 #define PROP_POS_A   {pos_a}
+#define PROP_POS_k   {pos_k}
 #define PROP_POS_B   {pos_b}
 #define PROP_POS_C   {pos_c}
 #define PROP_POS_BX  {pos_bx}
 
-#define PROP_MASK_OP  0x3F
+#define PROP_MASK_OP  {mask_op}
 #define PROP_MASK_A   0xFF
-#define PROP_MASK_B   0x1FF
-#define PROP_MASK_C   0x1FF
-#define PROP_MASK_BX  0x3FFFF
-#define PROP_MAXARG_SBX 131071
+#define PROP_MASK_k   0x1
+#define PROP_MASK_B   {mask_b}
+#define PROP_MASK_C   {mask_c}
+#define PROP_MASK_BX  {mask_bx}
 
 #define INS_XOR_MASK 0x{p.instruction_xor_mask:08X}U
 #define STR_XOR_KEY  0x{p.string_xor_key:02X}
@@ -194,7 +218,7 @@ static TString* PropReadString(PropLoadState* S) {{
 static Instruction DecodePropInstruction(uint32_t raw) {{
     raw ^= INS_XOR_MASK;
     uint32_t prop_op = (raw >> PROP_POS_OP) & PROP_MASK_OP;
-    uint32_t std_op = (prop_op < 38) ? PROP_TO_STD_OPCODE[prop_op] : prop_op;
+    uint32_t std_op = (prop_op < PROP_NUM_OPCODES) ? PROP_TO_STD_OPCODE[prop_op] : prop_op;
     uint32_t a = (raw >> PROP_POS_A) & PROP_MASK_A;
 
     enum OpMode mode = getOpMode(std_op);
@@ -202,10 +226,10 @@ static Instruction DecodePropInstruction(uint32_t raw) {{
     if (mode == iABC) {{
         uint32_t b = (raw >> PROP_POS_B) & PROP_MASK_B;
         uint32_t c = (raw >> PROP_POS_C) & PROP_MASK_C;
-        return (Instruction)((std_op & 0x3F) | (a << 6) | (c << 14) | (b << 23));
+        return (Instruction)((std_op & PROP_MASK_OP) | (a << 6) | (c << 14) | (b << 23));
     }} else {{
         uint32_t bx = (raw >> PROP_POS_BX) & PROP_MASK_BX;
-        return (Instruction)((std_op & 0x3F) | (a << 6) | (bx << 14));
+        return (Instruction)((std_op & PROP_MASK_OP) | (a << 6) | (bx << 14));
     }}
 }}
 

@@ -1,5 +1,6 @@
 """
 Proprietary Lua Format Generator Domain Service.
+Supports Lua 5.1 and Lua 5.5 bytecode generation.
 """
 
 import hashlib
@@ -7,9 +8,10 @@ import os
 from random import Random
 from typing import Optional
 
-from lua_format.domain.models import NUM_OPCODES, StandardConstantTag
+from lua_format.domain.models import NUM_OPCODES, NUM_OPCODES_55, StandardConstantTag
 from lua_format.domain.profile import (
-    EnvelopeConfig, FormatProfile, SUPPORTED_BITFIELD_LAYOUTS, SUPPORTED_SECTION_ORDERS
+    EnvelopeConfig, FormatProfile,
+    SUPPORTED_BITFIELD_LAYOUTS_51, SUPPORTED_BITFIELD_LAYOUTS_55, SUPPORTED_SECTION_ORDERS
 )
 
 
@@ -37,6 +39,7 @@ class LuaFormatGenerator:
 
     def generate(self,
                  name: Optional[str] = None,
+                 lua_version: str = "5.1",
                  endianness: Optional[str] = None,
                  bitfield_layout: Optional[str] = None,
                  instruction_xor: bool = True,
@@ -45,13 +48,15 @@ class LuaFormatGenerator:
                  envelope: bool = False,
                  auth_hmac: bool = False,
                  preset: Optional[str] = None) -> FormatProfile:
-        """Generate a complete proprietary format profile."""
+        """Generate a complete proprietary format profile for Lua 5.1 or Lua 5.5."""
         if not name:
             short_seed = self.seed[:6].upper()
-            name = f"LUA_PROPRIETARY_{short_seed}"
+            ver_tag = "55" if lua_version == "5.5" else "51"
+            name = f"LUA{ver_tag}_PROPRIETARY_{short_seed}"
 
-        # 1. Opcode permutation (0..37)
-        opcodes = list(range(NUM_OPCODES))
+        # 1. Opcode permutation
+        n_ops = NUM_OPCODES_55 if lua_version == "5.5" else NUM_OPCODES
+        opcodes = list(range(n_ops))
         self.rng.shuffle(opcodes)
         opcode_map = {std_op: prop_op for std_op, prop_op in enumerate(opcodes)}
         inv_opcode_map = {prop_op: std_op for std_op, prop_op in opcode_map.items()}
@@ -69,7 +74,10 @@ class LuaFormatGenerator:
         inv_const_tag_map = {prop: std for std, prop in const_tag_map.items()}
 
         # 3. Bitfield layout
-        layout = bitfield_layout or self.rng.choice(SUPPORTED_BITFIELD_LAYOUTS)
+        if lua_version == "5.5":
+            layout = bitfield_layout or self.rng.choice(SUPPORTED_BITFIELD_LAYOUTS_55)
+        else:
+            layout = bitfield_layout or self.rng.choice(SUPPORTED_BITFIELD_LAYOUTS_51)
 
         # 4. Instruction XOR mask
         xor_mask = self.rng.randint(0x01010101, 0xFFFFFFFF) if instruction_xor else 0x00000000
@@ -78,7 +86,7 @@ class LuaFormatGenerator:
         magic = self._generate_magic(name)
 
         # 6. Endianness
-        endian = endianness or self.rng.choice(["little", "little"])  # Default mostly little-endian for x86/ARM
+        endian = endianness or self.rng.choice(["little", "little"])  # Default mostly little-endian
 
         # 7. Section order
         section_order = self.rng.choice(SUPPORTED_SECTION_ORDERS)
@@ -99,18 +107,18 @@ class LuaFormatGenerator:
             auth_key=hashlib.sha256(self.seed.encode()).digest()
         )
 
+        version_byte = 0x55 if lua_version == "5.5" else 0x51
+
         # Handle Presets
         if preset == "popcap_style":
-            # PopCap style: Reverse bitfields B_C_A_OP, custom tags, no XOR mask
-            layout = "B_C_A_OP"
+            layout = "5.5_C_B_k_A_OP" if lua_version == "5.5" else "B_C_A_OP"
             xor_mask = 0x00000000
             str_enc = "raw"
             str_key = 0x00
             magic = b"\x1bPop"
             section_order = ["header_info", "code", "constants", "subprotos", "debug"]
         elif preset == "hardened":
-            # Hardened style: Opcode shuffle + Bitfield shuffle + Instruction XOR + String XOR + Section reorder + 22B Envelope + HMAC
-            layout = "B_C_A_OP"
+            layout = "5.5_C_B_k_A_OP" if lua_version == "5.5" else "B_C_A_OP"
             env_config.enabled = True
             env_config.auth = "hmac-sha256"
             str_enc = "xor"
@@ -119,8 +127,9 @@ class LuaFormatGenerator:
         return FormatProfile(
             name=name,
             seed=self.seed,
+            lua_version=lua_version,
             magic=magic,
-            version=0x51,
+            version=version_byte,
             format_version=self.rng.randint(0, 10),
             endianness=endian,
             size_int=4,

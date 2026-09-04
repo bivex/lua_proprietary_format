@@ -228,7 +228,7 @@ class StandardLua51Writer:
         # Code
         self._write_int(len(p.code))
         for ins in p.code:
-            raw = encode_standard_instruction(ins)
+            raw = encode_standard_instruction(ins, lua_version="5.1")
             self.out.extend(struct.pack(f"{self.endian}I", raw))
 
         # Constants

@@ -1,5 +1,6 @@
 """
 Domain Profile and Specification for Proprietary Lua Bytecode Formats.
+Supports Lua 5.1 and Lua 5.5.
 """
 
 from dataclasses import dataclass, field
@@ -7,7 +8,7 @@ from typing import Dict, List, Optional
 import json
 
 
-SUPPORTED_BITFIELD_LAYOUTS = [
+SUPPORTED_BITFIELD_LAYOUTS_51 = [
     "OP_A_C_B",   # Standard Lua 5.1: OP (0..5), A (6..13), C (14..22), B (23..31)
     "OP_A_B_C",   # Alternate:        OP (0..5), A (6..13), B (14..22), C (23..31)
     "A_OP_C_B",   # Alternate:        A (0..7),  OP (8..13), C (14..22), B (23..31)
@@ -15,6 +16,17 @@ SUPPORTED_BITFIELD_LAYOUTS = [
     "C_B_A_OP",   # Alternate:        C (0..8),  B (9..17),  A (18..25), OP (26..31)
     "A_B_C_OP",   # Alternate:        A (0..7),  B (8..16),  C (17..25), OP (26..31)
 ]
+
+SUPPORTED_BITFIELD_LAYOUTS_55 = [
+    "5.5_OP_A_k_B_C",  # Standard Lua 5.5: OP (0..6), A (7..14), k (15), B (16..23), C (24..31)
+    "5.5_OP_A_k_C_B",  # Alternate:        OP (0..6), A (7..14), k (15), C (16..23), B (24..31)
+    "5.5_OP_k_B_C_A",  # Alternate:        OP (0..6), k (7), B (8..15), C (16..23), A (24..31)
+    "5.5_C_B_k_A_OP",  # Reverse:          C (0..7),  B (8..15),  k (16), A (17..24), OP (25..31)
+    "5.5_k_B_C_A_OP",  # Alternate:        k (0),     B (1..8),   C (9..16), A (17..24), OP (25..31)
+    "5.5_B_C_k_A_OP",  # Alternate:        B (0..7),  C (8..15),  k (16), A (17..24), OP (25..31)
+]
+
+SUPPORTED_BITFIELD_LAYOUTS = SUPPORTED_BITFIELD_LAYOUTS_51 + SUPPORTED_BITFIELD_LAYOUTS_55
 
 SUPPORTED_SECTION_ORDERS = [
     ["header_info", "code", "constants", "subprotos", "debug"],          # Standard
@@ -40,6 +52,7 @@ class EnvelopeConfig:
 class FormatProfile:
     name: str
     seed: str
+    lua_version: str = "5.1"           # "5.1" | "5.5"
     magic: bytes = b"\x1bSEC"
     version: int = 0x51
     format_version: int = 0
@@ -50,7 +63,7 @@ class FormatProfile:
     size_lua_number: int = 8
     integral: int = 0
     
-    # Opcode mapping: std_op -> prop_op (0..37)
+    # Opcode mapping: std_op -> prop_op
     opcode_map: Dict[int, int] = field(default_factory=dict)
     inv_opcode_map: Dict[int, int] = field(default_factory=dict)
     
@@ -77,6 +90,7 @@ class FormatProfile:
         return {
             "name": self.name,
             "seed": self.seed,
+            "lua_version": self.lua_version,
             "magic_hex": self.magic.hex(),
             "magic_repr": repr(self.magic),
             "version": self.version,
@@ -147,6 +161,7 @@ class FormatProfile:
         return cls(
             name=data["name"],
             seed=data["seed"],
+            lua_version=data.get("lua_version", "5.1"),
             magic=magic,
             version=data.get("version", 0x51),
             format_version=data.get("format_version", 0),

@@ -1,5 +1,6 @@
 """
 Command-line Interface for Lua Proprietary Format Generator and Runtime System.
+Supports Lua 5.1 and Lua 5.5 bytecode formats.
 """
 
 import argparse
@@ -18,6 +19,7 @@ def print_banner():
   ==================================================================
    🔒 Lua Proprietary Format Generator & Anti-Decompiler Suite (VIQ)
    Based on gen_random_protocol (Hexagonal Architecture)
+   Supports Lua 5.1 and Lua 5.5
   ==================================================================
 """)
 
@@ -28,7 +30,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="gen_lua_format",
-        description="Proprietary Lua 5.1 Bytecode Format Generator & Anti-Luadec Security Suite"
+        description="Proprietary Lua Bytecode Format Generator & Anti-Luadec Security Suite"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
@@ -36,6 +38,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Command: generate
     p_gen = subparsers.add_parser("generate", help="Generate a new proprietary Lua format profile")
     p_gen.add_argument("-n", "--name", type=str, help="Format profile name (e.g. VIPER_LUA)")
+    p_gen.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Target Lua version (default: 5.1)")
     p_gen.add_argument("--seed", type=str, help="32-hex character seed for reproducibility")
     p_gen.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], help="Format security preset")
     p_gen.add_argument("--layout", choices=SUPPORTED_BITFIELD_LAYOUTS, help="Instruction bitfield layout")
@@ -49,6 +52,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_enc = subparsers.add_parser("protect", help="Encode .lua or .luac into proprietary format")
     p_enc.add_argument("input", type=Path, help="Input .lua source or .luac standard bytecode")
     p_enc.add_argument("-o", "--output", type=Path, required=True, help="Output proprietary .luc file")
+    p_enc.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Lua version if no profile file")
     p_enc.add_argument("--profile", type=Path, help="Path to format_profile.json or .yaml")
     p_enc.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], help="Preset if no profile file")
     p_enc.add_argument("--seed", type=str, help="Seed if no profile file")
@@ -57,6 +61,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_dec = subparsers.add_parser("unprotect", help="Decode proprietary format back to standard .luac")
     p_dec.add_argument("input", type=Path, help="Input proprietary .luc file")
     p_dec.add_argument("-o", "--output", type=Path, required=True, help="Output standard .luac file")
+    p_dec.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Lua version if no profile file")
     p_dec.add_argument("--profile", type=Path, help="Path to format_profile.json or .yaml")
     p_dec.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], help="Preset if no profile file")
     p_dec.add_argument("--seed", type=str, help="Seed if no profile file")
@@ -70,6 +75,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Command: verify
     p_ver = subparsers.add_parser("verify", help="Run automated verification pipeline against luadec and check execution")
+    p_ver.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Target Lua version (default: 5.1)")
     p_ver.add_argument("--input", type=Path, help="Optional custom Lua script to verify")
     p_ver.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], default="hardened", help="Preset")
     p_ver.add_argument("--seed", type=str, help="Entropy seed")
@@ -88,6 +94,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         profile = service.generate_profile(
             seed_hex=args.seed,
             name=args.name,
+            lua_version=args.lua_version,
             preset=args.preset,
             bitfield_layout=args.layout,
             instruction_xor=not args.no_xor,
@@ -96,6 +103,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             out_dir=args.output_dir
         )
         print(f"[+] Format Profile Generated : {profile.name}")
+        print(f"    Target Lua Version       : Lua {profile.lua_version}")
         print(f"    Seed                     : {profile.seed}")
         print(f"    Magic Signature          : {repr(profile.magic)} ({profile.magic.hex()})")
         print(f"    Bitfield Layout          : {profile.bitfield_layout}")
@@ -121,7 +129,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.profile:
             profile = service.load_profile(args.profile)
         else:
-            profile = service.generate_profile(seed_hex=args.seed, preset=args.preset or "hardened")
+            profile = service.generate_profile(seed_hex=args.seed, lua_version=args.lua_version, preset=args.preset or "hardened")
         
         out_path = service.encode_file(args.input, args.output, profile)
         print(f"[+] Protected '{args.input}' -> '{out_path}' ({out_path.stat().st_size} bytes)")
@@ -131,7 +139,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.profile:
             profile = service.load_profile(args.profile)
         else:
-            profile = service.generate_profile(seed_hex=args.seed, preset=args.preset or "hardened")
+            profile = service.generate_profile(seed_hex=args.seed, lua_version=args.lua_version, preset=args.preset or "hardened")
         
         out_path = service.decode_file(args.input, args.output, profile)
         print(f"[+] Recovered '{args.input}' -> '{out_path}' ({out_path.stat().st_size} bytes)")
@@ -139,15 +147,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     elif args.command == "verify":
         print_banner()
-        print(f"[*] Running Automated Anti-Luadec and Multi-Runtime Verification...")
+        print(f"[*] Running Automated Anti-Luadec and Multi-Runtime Verification (Target: Lua {args.lua_version})...")
         custom_code = args.input.read_text() if args.input else None
-        profile = service.generate_profile(seed_hex=args.seed, preset=args.preset)
+        profile = service.generate_profile(seed_hex=args.seed, lua_version=args.lua_version, preset=args.preset)
 
         res = service.verify_pipeline(sample_lua_code=custom_code, profile=profile)
 
         print("\n" + "="*70)
         print(f" 1. Standard Lua Bytecode (.luac):")
-        print(f"    - Decompilable by standard luadec  : {'YES (Vulnerable)' if res['standard_luadec_success'] else 'NO'}")
+        print(f"    - Target Version                  : Lua {profile.lua_version}")
+        print(f"    - Decompilable by standard luadec : {'YES (Vulnerable)' if res['standard_luadec_success'] else 'NO'}")
         print(f"\n 2. Proprietary Protected Bytecode (.luc):")
         print(f"    - File Size                       : {res['proprietary_file_size']} bytes")
         print(f"    - Standard Luadec Decompilation   : {'BLOCKED (PROTECTED ✅)' if res['anti_luadec_protected'] else 'FAILED ❌'}")
