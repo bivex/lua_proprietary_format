@@ -4,14 +4,15 @@
 [![Lua 5.1](https://img.shields.io/badge/lua-5.1.5-blue.svg)](https://www.lua.org/)
 [![Decompiler Protection](https://img.shields.io/badge/luadec-blocked-success.svg)](luadec)
 [![Architecture](https://img.shields.io/badge/architecture-DDD%20%2F%20Hexagonal-blueviolet.svg)](gen_random_protocol)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**gen_lua_format** — генератор проприетарных бинарных форматов байткода для Lua на Python, построенный на архитектурных принципах **[gen_random_protocol](https://github.com/bivex/gen_random_protocol)** (Domain-Driven Design & Hexagonal Architecture).
+**gen_lua_format** is a high-performance **proprietary Lua bytecode format generator, compiler, and anti-reverse-engineering security suite** in Python, built following the Domain-Driven Design (DDD) & Hexagonal Architecture principles of **[gen_random_protocol](https://github.com/bivex/gen_random_protocol)**.
 
-Инструмент позволяет создавать кастомные, криптографически защищенные форматы байткода Lua, которые **невозможно разобрать стандартными декомпиляторами (например, `luadec`, `unluac`, `ChunkSpy`, `LAT`)**, при этом обеспечивая их полноценное исполнение как через нативный скомпилированный C VM Runner, так и через чистый Lua in-memory загрузчик (`loader.lua`).
+It generates cryptographically seeded, customized Lua binary chunk formats that **completely block and defeat decompilers and disassemblers (such as `luadec`, `unluac`, `ChunkSpy`, and `LAT`)**, while guaranteeing 100% operational execution both via a native compiled C VM runner and via a pure Lua in-memory loader (`loader.lua`).
 
 ---
 
-## 📐 Архитектура (DDD & Hexagonal)
+## 📐 Domain-Driven Hexagonal Architecture
 
 ```text
                ┌────────────────────────────────────────────────────────┐
@@ -41,88 +42,115 @@
 
 ---
 
-## 🛡️ Уровни защиты от декомпиляции (`luadec` / `unluac`)
+## 🛡️ Anti-Decompiler Security Layers (`luadec` / `unluac`)
 
-| Уровень защиты | Реализация | Эффект против декомпиляторов |
+| Security Layer | Implementation Details | Anti-Decompiler Impact |
 |---|---|---|
-| **1. Кастомная сигнатура заголовка** | Замена `\x1bLua` на случайные или заданные байты (например, `\x7fU52`, `\x1bSEC`, `\x00PLU`). | `luadec` падает с ошибкой: `bad header in precompiled chunk` или `unexpected symbol`. |
-| **2. Перестановка опкодов (0..37)** | Биективная перестановка всех 38 инструкций Lua 5.1 на основе сида (seed). | Если заголовок пропатчен, декомпилятор сопоставляет опкоды с неверной семантикой, вызывая crash / segfault / синтаксический мусор. |
-| **3. Битфилд-трансформация инструкций** | Изменение позиций и битовых сдвигов полей (`OP_A_C_B`, `OP_A_B_C`, `A_OP_C_B`, `B_C_A_OP`, `C_B_A_OP`, `A_B_C_OP`). | Невозможно декодировать регистры A, B, C, Bx, sBx. |
-| **4. Побитовая маска инструкций (XOR)** | Применение 32-битной псевдослучайной маски `ins ^ xor_mask`. | Инструкции превращаются в псевдослучайный шум. |
-| **5. Перестановка тегов констант** | Перестановка ID типов (`TNIL`, `TBOOLEAN`, `TNUMBER`, `TSTRING`). | Таблица констант полностью искажается. |
-| **6. Изменение порядка секций Proto** | Перестановка порядка записи секций в чанке (Code, Constants, Subprotos, Debug). | Десериализатор `luadec` читает числа как строки и падает с ошибкой EOF или bad integer. |
-| **7. Обфускация строк** | XOR-маскирование тел строк и длин. | Строковые литералы не видны через `strings` и декомпиляторы. |
-| **8. 22-байтовый сетевой конверт (Envelope)** | Оборачивание в канонический 22B заголовок из `gen_random_protocol` с CRC-32 и HMAC-SHA256. | Полная изоляция байткода на уровне протокола. |
+| **1. Custom Header Signature** | Replaces standard `\x1bLua` with random or configured 4-byte magic (e.g., `\x7fU52`, `\x1bSEC`, `\x00PLU`). | `luadec` immediately crashes or aborts with: `bad header in precompiled chunk` or `unexpected symbol` (Exit code 1). |
+| **2. Opcode Permutation (0..37)** | Bijective pseudo-random shuffling of all 38 Lua 5.1 VM instructions based on seed. | Even if header checks are bypassed, `luadec` maps instructions to incorrect AST nodes, causing syntax corruption or decompiler segfaults. |
+| **3. Bitfield Layout Customization** | Reorders and shifts bit positions for registers (`OP_A_C_B`, `OP_A_B_C`, `A_OP_C_B`, `B_C_A_OP`, `C_B_A_OP`, `A_B_C_OP`). | Decompilers fail to extract A, B, C, Bx, and sBx registers. |
+| **4. Instruction Word XOR Masking** | 32-bit pseudo-random mask applied to raw instruction words (`ins ^ xor_mask`). | Instruction stream appears as high-entropy random data. |
+| **5. Constant Type Tag Shuffling** | Remaps standard type tags (`TNIL`, `TBOOLEAN`, `TNUMBER`, `TSTRING`). | Constant tables become unparsable by standard tools. |
+| **6. Proto Section Reordering** | Customizes chunk serialization order (Code, Constants, Subprotos, Debug). | Standard parsers read numbers as strings, causing fatal parsing errors or buffer overflows. |
+| **7. String Obfuscation** | XOR-masked string payloads and lengths. | Strings and symbols are hidden from `strings`, decompilers, and hex editors. |
+| **8. 22-Byte Framing Envelope** | Encapsulates chunk inside `gen_random_protocol` 22B wire header with CRC-32 and HMAC-SHA256. | Protocol-level integrity and authentication barrier. |
 
 ---
 
-## 🚀 Быстрый старт (CLI)
+## 🚀 Quick Start (CLI)
 
-### 1. Автоматическая верификация устойчивости против `luadec`
-Запуск полного цикла верификации (компиляция `.lua` -> проверка что `luadec` снимает обычный `.luac` -> шифрование в проприетарный `.luc` -> проверка что `luadec` **блокируется** -> исполнение через C Runner -> исполнение через Pure Loader -> декодирование):
+### 1. Automated Anti-Luadec Verification
+Runs an end-to-end verification pipeline:
+1. Compiles `.lua` to standard `.luac`
+2. Verifies that standard `luadec` successfully decompiles `.luac` (proves baseline vulnerability)
+3. Encodes `.luac` into the proprietary format `.luc`
+4. Attempts `luadec` decompilation on `.luc` -> **verifies that luadec FAILS / is blocked**
+5. Executes `.luc` with native C VM Runner -> verifies successful execution
+6. Executes `.luc` with Pure Lua In-Memory Loader -> verifies successful execution
+7. Decodes `.luc` back with authorized key and verifies 100% roundtrip consistency.
+
 ```bash
 python3 gen_lua_format.py verify
 ```
 
-### 2. Генерация профиля проприетарного формата
+---
+
+### 2. Generate a Proprietary Format Profile
 ```bash
-# Генерация защищенного формата со спецификацией, C-раннером и Lua-лоадером
+# Generate a hardened profile with RFC spec, C runner, and Lua loader
 python3 gen_lua_format.py generate --seed a1b2c3d4e5f60718293a4b5c6d7e8f90 --name MY_SECURE_LUA -o out/my_format --build-runner
 ```
-Команда создаст в `out/my_format/`:
-- `LUA_FORMAT_SPEC.md` — детальная RFC-документация формата и матрица опкодов;
-- `format_profile.yaml` / `format_manifest.json` — конфигурация профиля;
-- `lua_custom_runner.c` — исходный код C раннера;
-- `lua_runner` — скомпилированный нативный бинарник (если указан `--build-runner`);
-- `loader.lua` — чистый Lua in-memory загрузчик.
+Output artifacts generated in `out/my_format/`:
+- `LUA_FORMAT_SPEC.md` — RFC-style documentation of the format and opcode translation matrix;
+- `format_profile.yaml` / `format_manifest.json` — Machine-readable format profile;
+- `lua_custom_runner.c` — Standalone C runner source code;
+- `lua_runner` — Compiled native runner binary (when `--build-runner` is passed);
+- `loader.lua` — Pure Lua in-memory loader script.
 
-### 3. Защита Lua скрипта (Encode)
+---
+
+### 3. Protect Lua Scripts (Encode)
 ```bash
 python3 gen_lua_format.py protect myscript.lua -o out/my_format/myscript.luc --profile out/my_format/format_profile.yaml
 ```
 
-### 4. Проверка того, что `luadec` не может декомпилировать
+---
+
+### 4. Verify luadec Rejection
 ```bash
 ./luadec/luadec/luadec out/my_format/myscript.luc
-# Вывод: luadec: out/my_format/myscript.luc:1: unexpected symbol near '...' (Exit code: 1)
+# Output: luadec: out/my_format/myscript.luc:1: unexpected symbol near '...' (Exit code: 1)
 ```
 
-### 5. Запуск проприетарного байткода
-#### Способ А: Через нативный C Runner (максимальная скорость)
+---
+
+### 5. Execute the Protected Format
+
+#### Method A: Native C Runner (High-Performance Execution)
 ```bash
 ./out/my_format/lua_runner out/my_format/myscript.luc
 ```
 
-#### Способ Б: Через чистый Lua In-Memory Loader (без перекомпиляции C)
+#### Method B: Pure Lua In-Memory Loader (No C Recompilation Required)
 ```bash
 ./luadec/lua-5.1/src/lua out/my_format/loader.lua out/my_format/myscript.luc
 ```
 
-#### Способ В: Подключение в существующий Lua проект
+#### Method C: Integration in Existing Lua Codebases
 ```lua
 local loader = require("loader")
 local protected_func = loader.loadfile("myscript.luc")
 protected_func("arg1", "arg2")
 ```
 
-### 6. Авторизованное декодирование (Decode)
+---
+
+### 6. Authorized Recovery / Decoding (Decode)
 ```bash
 python3 gen_lua_format.py unprotect out/my_format/myscript.luc -o out/my_format/recovered.luac --profile out/my_format/format_profile.yaml
 
-# Восстановленный файл снова читается luadec:
+# The recovered .luac can be decompiled again by authorized tools:
 ./luadec/luadec/luadec out/my_format/recovered.luac
 ```
 
 ---
 
-## 🧪 Запуск полного набора тестов
+## 🧪 Running Automated Test Suite
 
 ```bash
 python3 -m unittest discover -s lua_format/tests
 ```
 
-Все тесты проверяют:
-- Корректность кодирования и декодирования всех 38 инструкций и всех типов констант;
-- Round-trip сериализацию вложенных функций, замыканий (upvalues), таблиц и циклов;
-- Полную блокировку стандартного декомпилятора `luadec`;
-- Работоспособность и идентичность вывода C Runner и Pure Lua Loader.
+The test suite covers:
+- Opcode permutation matrices and bi-directional encoding/decoding;
+- All bitfield layouts (`OP_A_C_B`, `OP_A_B_C`, `A_OP_C_B`, `B_C_A_OP`, `C_B_A_OP`, `A_B_C_OP`);
+- Instruction XOR masking and string obfuscation;
+- Nested functions, closures, upvalues, varargs, loops, and metatables;
+- Anti-luadec rejection assertions across multiple presets (`hardened`, `popcap_style`, random seeds);
+- Output consistency verification across C Runner and Pure Lua Loader.
+
+---
+
+## 📜 License
+
+MIT License. See [LICENSE](LICENSE) for details.
