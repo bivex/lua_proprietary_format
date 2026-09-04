@@ -1,0 +1,13 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Output directories
+out/
+
+# Build artifacts
+*.o
+*.a
+*.exe
+*.out
