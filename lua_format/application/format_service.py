@@ -51,6 +51,7 @@ class LuaFormatService:
                          strip_debug: bool = False,
                          envelope: bool = False,
                          auth_hmac: bool = False,
+                         compression: str = "none",
                          out_dir: Optional[Path] = None) -> FormatProfile:
         seed = seed_hex if seed_hex else make_seed()
         seed_bytes = bytes.fromhex(seed)
@@ -68,6 +69,7 @@ class LuaFormatService:
             strip_debug=strip_debug,
             envelope=envelope,
             auth_hmac=auth_hmac,
+            compression=compression,
             preset=preset
         )
 

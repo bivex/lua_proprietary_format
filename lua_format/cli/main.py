@@ -40,11 +40,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_gen.add_argument("-n", "--name", type=str, help="Format profile name (e.g. VIPER_LUA)")
     p_gen.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Target Lua version (default: 5.1)")
     p_gen.add_argument("--seed", type=str, help="32-hex character seed for reproducibility")
-    p_gen.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], help="Format security preset")
+    p_gen.add_argument("--preset", choices=["popcap_style", "hardened", "stealth", "apultra_hardened", "ultra_hardened"], help="Format security preset")
     p_gen.add_argument("--layout", choices=SUPPORTED_BITFIELD_LAYOUTS, help="Instruction bitfield layout")
     p_gen.add_argument("--no-xor", action="store_true", help="Disable instruction XOR masking")
     p_gen.add_argument("--envelope", action="store_true", help="Wrap chunk in 22-byte protocol framing")
     p_gen.add_argument("--auth-hmac", action="store_true", help="Enable HMAC-SHA256 frame authentication")
+    p_gen.add_argument("--compress", choices=["none", "apultra"], default="none", help="Payload compression algorithm (default: none)")
     p_gen.add_argument("-o", "--output-dir", type=Path, default=Path("out/lua_format"), help="Output directory")
     p_gen.add_argument("--build-runner", action="store_true", help="Compile native C runner executable")
 
@@ -54,7 +55,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_enc.add_argument("-o", "--output", type=Path, required=True, help="Output proprietary .luc file")
     p_enc.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Lua version if no profile file")
     p_enc.add_argument("--profile", type=Path, help="Path to format_profile.json or .yaml")
-    p_enc.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], help="Preset if no profile file")
+    p_enc.add_argument("--preset", choices=["popcap_style", "hardened", "stealth", "apultra_hardened", "ultra_hardened"], help="Preset if no profile file")
+    p_enc.add_argument("--compress", choices=["none", "apultra"], default="none", help="Compression if no profile file")
     p_enc.add_argument("--seed", type=str, help="Seed if no profile file")
 
     # Command: unprotect / decode
@@ -63,7 +65,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_dec.add_argument("-o", "--output", type=Path, required=True, help="Output standard .luac file")
     p_dec.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Lua version if no profile file")
     p_dec.add_argument("--profile", type=Path, help="Path to format_profile.json or .yaml")
-    p_dec.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], help="Preset if no profile file")
+    p_dec.add_argument("--preset", choices=["popcap_style", "hardened", "stealth", "apultra_hardened", "ultra_hardened"], help="Preset if no profile file")
     p_dec.add_argument("--seed", type=str, help="Seed if no profile file")
 
     # Command: run
@@ -77,7 +79,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_ver = subparsers.add_parser("verify", help="Run automated verification pipeline against luadec and check execution")
     p_ver.add_argument("-lv", "--lua-version", choices=["5.1", "5.5"], default="5.1", help="Target Lua version (default: 5.1)")
     p_ver.add_argument("--input", type=Path, help="Optional custom Lua script to verify")
-    p_ver.add_argument("--preset", choices=["popcap_style", "hardened", "stealth"], default="hardened", help="Preset")
+    p_ver.add_argument("--preset", choices=["popcap_style", "hardened", "stealth", "apultra_hardened", "ultra_hardened"], default="hardened", help="Preset")
+    p_ver.add_argument("--compress", choices=["none", "apultra"], default="none", help="Compression")
     p_ver.add_argument("--seed", type=str, help="Entropy seed")
 
     args = parser.parse_args(argv)
@@ -100,6 +103,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             instruction_xor=not args.no_xor,
             envelope=args.envelope or args.auth_hmac,
             auth_hmac=args.auth_hmac,
+            compression=args.compress,
             out_dir=args.output_dir
         )
         print(f"[+] Format Profile Generated : {profile.name}")
@@ -109,6 +113,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"    Bitfield Layout          : {profile.bitfield_layout}")
         print(f"    Instruction XOR Mask     : 0x{profile.instruction_xor_mask:08X}")
         print(f"    String Encoding          : {profile.string_encoding} (Key 0x{profile.string_xor_key:02X})")
+        print(f"    Compression              : {profile.compression.upper()}")
         print(f"    22B Envelope Framing     : {'YES' if profile.envelope.enabled else 'NO'}")
         print(f"    Output Directory         : {args.output_dir.resolve()}\n")
         print(f"    Wrote: {args.output_dir / 'LUA_FORMAT_SPEC.md'}")
@@ -129,7 +134,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.profile:
             profile = service.load_profile(args.profile)
         else:
-            profile = service.generate_profile(seed_hex=args.seed, lua_version=args.lua_version, preset=args.preset or "hardened")
+            profile = service.generate_profile(
+                seed_hex=args.seed,
+                lua_version=args.lua_version,
+                preset=args.preset or "hardened",
+                compression=args.compress
+            )
         
         out_path = service.encode_file(args.input, args.output, profile)
         print(f"[+] Protected '{args.input}' -> '{out_path}' ({out_path.stat().st_size} bytes)")
@@ -149,7 +159,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         print_banner()
         print(f"[*] Running Automated Anti-Luadec and Multi-Runtime Verification (Target: Lua {args.lua_version})...")
         custom_code = args.input.read_text() if args.input else None
-        profile = service.generate_profile(seed_hex=args.seed, lua_version=args.lua_version, preset=args.preset)
+        profile = service.generate_profile(
+            seed_hex=args.seed,
+            lua_version=args.lua_version,
+            preset=args.preset,
+            compression=args.compress
+        )
 
         res = service.verify_pipeline(sample_lua_code=custom_code, profile=profile)
 

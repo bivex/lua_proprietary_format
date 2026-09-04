@@ -14,6 +14,7 @@ from lua_format.codecs.instruction_codec import (
     decode_proprietary_instruction, encode_proprietary_instruction
 )
 from lua_format.codecs.envelope_codec import unwrap_envelope, wrap_envelope
+from lua_format.codecs.compression_codec import ApultraCodec
 
 
 class ProprietaryLuaWriter:
@@ -143,6 +144,11 @@ class ProprietaryLuaWriter:
         self.write_proto(chunk.main_proto)
         raw_payload = bytes(self.out)
 
+        # Apply apultra compression if enabled
+        if self.p.compression == "apultra":
+            codec = ApultraCodec()
+            raw_payload = codec.compress(raw_payload)
+
         # Wrap in 22-byte protocol envelope if configured
         if self.p.envelope.enabled:
             return wrap_envelope(raw_payload, self.p.envelope)
@@ -155,6 +161,9 @@ class ProprietaryLuaReader:
     def __init__(self, data: bytes, profile: FormatProfile) -> None:
         # Unwrap 22-byte envelope if present
         payload, _ = unwrap_envelope(data, profile.envelope)
+        if profile.compression == "apultra":
+            codec = ApultraCodec()
+            payload = codec.decompress(payload)
         self.data = payload
         self.p = profile
         self.pos = 0

@@ -54,6 +54,7 @@ It generates cryptographically seeded, customized Lua binary chunk formats for *
 | **6. Proto Section Reordering** | Customizes chunk serialization order (Code, Constants, Subprotos, Debug). | Standard parsers read numbers as strings, causing fatal parsing errors or buffer overflows. |
 | **7. String Obfuscation** | XOR-masked string payloads and lengths. | Strings and symbols are hidden from `strings`, decompilers, and hex editors. |
 | **8. 22-Byte Framing Envelope** | Encapsulates chunk inside `gen_random_protocol` 22B wire header with CRC-32 and HMAC-SHA256. | Protocol-level integrity and authentication barrier. |
+| **9. Apultra (aPLib) Compression** | Optimal LZ compression via `apultra` (achieving up to **93.9% size reduction**). | Bytecode looks like compressed raw entropy; executed transparently via embedded decompressors. |
 
 ---
 
@@ -63,25 +64,29 @@ It generates cryptographically seeded, customized Lua binary chunk formats for *
 Runs an end-to-end verification pipeline:
 1. Compiles `.lua` to standard `.luac`
 2. Verifies that standard `luadec` successfully decompiles `.luac` (proves baseline vulnerability)
-3. Encodes `.luac` into the proprietary format `.luc`
+3. Encodes `.luac` into the proprietary format `.luc` (with optional `apultra` compression)
 4. Attempts `luadec` decompilation on `.luc` -> **verifies that luadec FAILS / is blocked**
 5. Executes `.luc` with native C VM Runner -> verifies successful execution
 6. Executes `.luc` with Pure Lua In-Memory Loader -> verifies successful execution
 7. Decodes `.luc` back with authorized key and verifies 100% roundtrip consistency.
 
 ```bash
+# Standard verification
 python3 gen_lua_format.py verify
+
+# Verification with Apultra Compression & Hardened Preset
+python3 gen_lua_format.py verify --preset apultra_hardened
 ```
 
 ---
 
 ### 2. Generate a Proprietary Format Profile
 ```bash
-# Generate a hardened Lua 5.1 profile with RFC spec, C runner, and Lua loader
-python3 gen_lua_format.py generate -lv 5.1 --seed a1b2c3d4e5f60718293a4b5c6d7e8f90 --name MY_SECURE_LUA -o out/my_format_51 --build-runner
+# Generate a hardened Lua 5.1 profile with apultra compression, RFC spec, C runner, and Lua loader
+python3 gen_lua_format.py generate -lv 5.1 --seed a1b2c3d4e5f60718293a4b5c6d7e8f90 --preset apultra_hardened -o out/my_format_51 --build-runner
 
-# Generate a hardened Lua 5.5 profile (85 opcodes)
-python3 gen_lua_format.py generate -lv 5.5 --seed 9876543210fedcba9876543210fedcba --preset hardened -o out/my_format_55
+# Generate a hardened Lua 5.5 profile (85 opcodes) with apultra compression
+python3 gen_lua_format.py generate -lv 5.5 --seed 9876543210fedcba9876543210fedcba --preset apultra_hardened -o out/my_format_55
 ```
 Output artifacts generated in output directory:
 - `LUA_FORMAT_SPEC.md` — RFC-style documentation of the format and opcode translation matrix;

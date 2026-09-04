@@ -209,6 +209,17 @@ class TestLuaCodecs(unittest.TestCase):
             self.assertEqual(len(profile.inv_opcode_map), NUM_OPCODES_55)
             self.assertTrue(profile.bitfield_layout.startswith("5.5_"))
 
+    def test_apultra_codec_roundtrip(self):
+        from lua_format.codecs.compression_codec import ApultraCodec
+        codec = ApultraCodec()
+        
+        sample_bytes = b"local x = 10; print(x + 20); for i=1,100 do print(i) end\n" * 20
+        compressed = codec.compress(sample_bytes)
+        self.assertLess(len(compressed), len(sample_bytes))
+        
+        decompressed = codec.decompress(compressed)
+        self.assertEqual(decompressed, sample_bytes)
+
 
 if __name__ == "__main__":
     unittest.main()

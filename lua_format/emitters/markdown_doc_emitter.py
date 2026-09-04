@@ -50,6 +50,7 @@ class MarkdownDocEmitter:
 - **Bitfield Layout:** `{p.bitfield_layout}`
 - **Instruction XOR Mask:** `0x{p.instruction_xor_mask:08X}`
 - **String Obfuscation:** `{p.string_encoding}` (Key: `0x{p.string_xor_key:02X}`)
+- **Payload Compression:** `{p.compression.upper()}` (Optimal aPLib LZ via `apultra`)
 - **22-Byte Framing Envelope:** `{"ENABLED" if p.envelope.enabled else "DISABLED"}`
 - **Integrity / Authentication:** `{"CRC-32 + " + str(p.envelope.auth) if p.envelope.enabled else "Native Header"}`
 

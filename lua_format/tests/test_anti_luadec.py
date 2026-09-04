@@ -81,13 +81,19 @@ class TestAntiLuadecAndRuntimes(unittest.TestCase):
             self.assertTrue(res["lua_loader_success"], f"Sample {idx}: Pure Lua loader failed to execute!")
             self.assertTrue(res["output_match"], f"Sample {idx}: Outputs did not match!")
 
-    def test_random_seed_generation(self):
-        for seed in ["deadbeef12345678deadbeef87654321", "cafebabe000011112222333344445555"]:
-            profile = self.service.generate_profile(seed_hex=seed)
-            res = self.service.verify_pipeline(sample_lua_code=TEST_PROGRAMS[0], profile=profile)
-            self.assertTrue(res["anti_luadec_protected"])
-            self.assertTrue(res["c_runner_success"])
-            self.assertTrue(res["output_match"])
+    def test_anti_luadec_protection_apultra_compressed(self):
+        profile = self.service.generate_profile(
+            seed_hex="3344556677889900aabbccddeeff0011",
+            preset="apultra_hardened"
+        )
+        self.assertEqual(profile.compression, "apultra")
+        for idx, code in enumerate(TEST_PROGRAMS):
+            res = self.service.verify_pipeline(sample_lua_code=code, profile=profile)
+            self.assertTrue(res["standard_luadec_success"], f"Sample {idx}: Standard luadec should succeed on standard luac")
+            self.assertTrue(res["anti_luadec_protected"], f"Sample {idx}: Standard luadec MUST FAIL on compressed proprietary format!")
+            self.assertTrue(res["c_runner_success"], f"Sample {idx}: C runner failed on apultra compressed chunk!")
+            self.assertTrue(res["lua_loader_success"], f"Sample {idx}: Pure Lua loader failed on apultra compressed chunk!")
+            self.assertTrue(res["output_match"], f"Sample {idx}: Outputs did not match!")
 
 
 if __name__ == "__main__":

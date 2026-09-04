@@ -114,6 +114,148 @@ local function lshift(a, n)
     return (a * (2 ^ n)) % 4294967296
 end
 
+-- Pure Lua aPLib (apultra) In-Memory Decompressor
+local function aplib_decompress(input_str)
+    local in_pos = 1
+    local in_len = string.len(input_str)
+    if in_len == 0 then return "" end
+
+    local out_bytes = {{}}
+    local out_len = 0
+
+    local cur_bit_mask = 0
+    local bits = 0
+    local follows_literal = 3
+    local rep_match_offset = 0
+
+    local function read_byte()
+        if in_pos > in_len then error("Unexpected EOF in apultra stream") end
+        local b = string.byte(input_str, in_pos)
+        in_pos = in_pos + 1
+        return b
+    end
+
+    local function read_bit()
+        if cur_bit_mask == 0 then
+            if in_pos > in_len then return -1 end
+            bits = read_byte()
+            cur_bit_mask = 128
+        end
+        local bit = (bits >= 128) and 1 or 0
+        bits = (bits * 2) % 256
+        cur_bit_mask = math.floor(cur_bit_mask / 2)
+        return bit
+    end
+
+    local function read_4bits()
+        local val = 0
+        for i = 3, 0, -1 do
+            local bit = read_bit()
+            if bit < 0 then error("Unexpected EOF reading 4bits") end
+            val = val + bit * (2 ^ i)
+        end
+        return val
+    end
+
+    local function read_gamma2()
+        local v = 1
+        repeat
+            local b2 = read_bit()
+            if b2 < 0 then error("Unexpected EOF in gamma2 bit") end
+            v = v * 2 + b2
+            local bit = read_bit()
+            if bit < 0 then error("Unexpected EOF in gamma2 flag") end
+        until bit == 0
+        return v
+    end
+
+    -- First byte is always literal
+    out_len = out_len + 1
+    out_bytes[out_len] = string.char(read_byte())
+
+    while true do
+        local nResult = read_bit()
+        if nResult < 0 then break end
+
+        if nResult == 0 then
+            -- 0: Literal
+            out_len = out_len + 1
+            out_bytes[out_len] = string.char(read_byte())
+            follows_literal = 3
+        else
+            nResult = read_bit()
+            if nResult < 0 then break end
+
+            if nResult == 0 then
+                -- 10: 8+n bits offset match
+                local offset_hi = read_gamma2()
+                offset_hi = offset_hi - follows_literal
+                local match_offset
+                local match_len
+                if offset_hi >= 0 then
+                    local lo = read_byte()
+                    match_offset = offset_hi * 256 + lo
+                    match_len = read_gamma2()
+                    if match_offset < 128 or match_offset >= 32000 then
+                        match_len = match_len + 2
+                    elseif match_offset >= 1280 then
+                        match_len = match_len + 1
+                    end
+                    rep_match_offset = match_offset
+                else
+                    match_offset = rep_match_offset
+                    match_len = read_gamma2()
+                end
+
+                follows_literal = 2
+                for i = 1, match_len do
+                    local src_pos = out_len - match_offset + 1
+                    if src_pos < 1 then error("Invalid match offset") end
+                    out_len = out_len + 1
+                    out_bytes[out_len] = out_bytes[src_pos]
+                end
+            else
+                nResult = read_bit()
+                if nResult < 0 then break end
+
+                if nResult == 0 then
+                    -- 110: 7-bit offset + 1-bit length
+                    local cmd = read_byte()
+                    if cmd == 0 then
+                        -- EOD marker
+                        break
+                    end
+                    local match_offset = math.floor(cmd / 2)
+                    local match_len = (cmd % 2) + 2
+                    follows_literal = 2
+                    rep_match_offset = match_offset
+                    for i = 1, match_len do
+                        local src_pos = out_len - match_offset + 1
+                        if src_pos < 1 then error("Invalid 7bit match offset") end
+                        out_len = out_len + 1
+                        out_bytes[out_len] = out_bytes[src_pos]
+                    end
+                else
+                    -- 111: 4-bit offset
+                    local offset_4b = read_4bits()
+                    follows_literal = 3
+                    if offset_4b ~= 0 then
+                        local src_pos = out_len - offset_4b + 1
+                        if src_pos < 1 then error("Invalid 4bit match offset") end
+                        out_len = out_len + 1
+                        out_bytes[out_len] = out_bytes[src_pos]
+                    else
+                        out_len = out_len + 1
+                        out_bytes[out_len] = "\\0"
+                    end
+                end
+            end
+        end
+    end
+
+    return table.concat(out_bytes)
+end
+
 -- Profile Configuration
 local PROP_MAGIC = {magic_byte_array}
 local PROP_TO_STD_OPCODE = {op_table_lua}
@@ -159,6 +301,12 @@ local function create_reader(str)
             str = string.sub(str, 23, 22 + pay_len)
             len = string.len(str)
         end
+    end
+
+    -- Decompress if apultra compression is used
+    if {"true" if p.compression == "apultra" else "false"} then
+        str = aplib_decompress(str)
+        len = string.len(str)
     end
 
     local R = {{}}

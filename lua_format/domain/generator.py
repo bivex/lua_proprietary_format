@@ -47,6 +47,7 @@ class LuaFormatGenerator:
                  strip_debug: bool = False,
                  envelope: bool = False,
                  auth_hmac: bool = False,
+                 compression: str = "none",
                  preset: Optional[str] = None) -> FormatProfile:
         """Generate a complete proprietary format profile for Lua 5.1 or Lua 5.5."""
         if not name:
@@ -123,6 +124,13 @@ class LuaFormatGenerator:
             env_config.auth = "hmac-sha256"
             str_enc = "xor"
             strip_debug = True
+        elif preset in ("apultra_hardened", "ultra_hardened"):
+            layout = "5.5_C_B_k_A_OP" if lua_version == "5.5" else "B_C_A_OP"
+            env_config.enabled = True
+            env_config.auth = "hmac-sha256"
+            str_enc = "xor"
+            strip_debug = True
+            compression = "apultra"
 
         return FormatProfile(
             name=name,
@@ -147,5 +155,6 @@ class LuaFormatGenerator:
             strip_debug=strip_debug,
             string_encoding=str_enc,
             string_xor_key=str_key,
+            compression=compression,
             envelope=env_config
         )

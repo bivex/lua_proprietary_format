@@ -135,6 +135,137 @@ static const uint8_t PROP_TO_STD_OPCODE[PROP_NUM_OPCODES] = {{ {inv_op_table} }}
 
 #define INS_XOR_MASK 0x{p.instruction_xor_mask:08X}U
 #define STR_XOR_KEY  0x{p.string_xor_key:02X}
+#define PROP_COMPRESSION_APULTRA {1 if p.compression == "apultra" else 0}
+
+/* aPLib / apultra In-Memory Decompressor */
+static inline int apultra_read_bit(const unsigned char **ppInBlock, const unsigned char *pDataEnd, int *nCurBitMask, unsigned char *bits) {{
+   const unsigned char *pInBlock = *ppInBlock;
+   int nBit;
+   if (*nCurBitMask == 0) {{
+      if (pInBlock >= pDataEnd) return -1;
+      *bits = *pInBlock++;
+      *nCurBitMask = 128;
+   }}
+   nBit = ((*bits) & 128) ? 1 : 0;
+   *bits <<= 1;
+   *nCurBitMask >>= 1;
+   *ppInBlock = pInBlock;
+   return nBit;
+}}
+
+static inline int apultra_read_4bits(const unsigned char **ppInBlock, const unsigned char *pDataEnd, int *nCurBitMask, unsigned char *bits) {{
+   int val = 0;
+   for (int i = 3; i >= 0; i--) {{
+      int bit = apultra_read_bit(ppInBlock, pDataEnd, nCurBitMask, bits);
+      if (bit < 0) return -1;
+      val |= (bit << i);
+   }}
+   return val;
+}}
+
+static inline int apultra_read_gamma2(const unsigned char **ppInBlock, const unsigned char *pDataEnd, int *nCurBitMask, unsigned char *bits) {{
+   int bit;
+   unsigned int v = 1;
+   do {{
+      v = (v << 1) + apultra_read_bit(ppInBlock, pDataEnd, nCurBitMask, bits);
+      bit = apultra_read_bit(ppInBlock, pDataEnd, nCurBitMask, bits);
+      if (bit < 0) return bit;
+   }} while (bit);
+   return v;
+}}
+
+static size_t apultra_decompress(const unsigned char *pInputData, unsigned char *pOutData, const size_t nInputSize, const size_t nMaxOutBufferSize) {{
+   const unsigned char *pInputDataEnd = pInputData + nInputSize;
+   unsigned char *pCurOutData = pOutData;
+   const unsigned char *pOutDataEnd = pCurOutData + nMaxOutBufferSize;
+   int nCurBitMask = 0;
+   unsigned char bits = 0;
+   int nMatchOffset = -1;
+   int nFollowsLiteral = 3;
+
+   if (pInputData >= pInputDataEnd || pCurOutData >= pOutDataEnd) return (size_t)-1;
+   *pCurOutData++ = *pInputData++;
+
+   while (1) {{
+      int nResult = apultra_read_bit(&pInputData, pInputDataEnd, &nCurBitMask, &bits);
+      if (nResult < 0) return (size_t)-1;
+
+      if (!nResult) {{
+         if (pInputData < pInputDataEnd && pCurOutData < pOutDataEnd) {{
+            *pCurOutData++ = *pInputData++;
+            nFollowsLiteral = 3;
+         }} else {{
+            return (size_t)-1;
+         }}
+      }} else {{
+         nResult = apultra_read_bit(&pInputData, pInputDataEnd, &nCurBitMask, &bits);
+         if (nResult < 0) return (size_t)-1;
+
+         if (nResult == 0) {{
+            unsigned int nMatchLen;
+            int nMatchOffsetHi = apultra_read_gamma2(&pInputData, pInputDataEnd, &nCurBitMask, &bits);
+            nMatchOffsetHi -= nFollowsLiteral;
+            if (nMatchOffsetHi >= 0) {{
+               if (pInputData >= pInputDataEnd) return (size_t)-1;
+               nMatchOffset = ((unsigned int)nMatchOffsetHi) << 8;
+               nMatchOffset |= (unsigned int)(*pInputData++);
+               nMatchLen = apultra_read_gamma2(&pInputData, pInputDataEnd, &nCurBitMask, &bits);
+               if (nMatchOffset < 128 || nMatchOffset >= 32000)
+                  nMatchLen += 2;
+               else if (nMatchOffset >= 1280)
+                  nMatchLen++;
+            }} else {{
+               nMatchLen = apultra_read_gamma2(&pInputData, pInputDataEnd, &nCurBitMask, &bits);
+            }}
+            nFollowsLiteral = 2;
+            const unsigned char *pSrc = pCurOutData - nMatchOffset;
+            if (pSrc >= pOutData && (pCurOutData + nMatchLen) <= pOutDataEnd) {{
+               while (nMatchLen--) *pCurOutData++ = *pSrc++;
+            }} else {{
+               return (size_t)-1;
+            }}
+         }} else {{
+            nResult = apultra_read_bit(&pInputData, pInputDataEnd, &nCurBitMask, &bits);
+            if (nResult < 0) return (size_t)-1;
+
+            if (nResult == 0) {{
+               if (pInputData >= pInputDataEnd) return (size_t)-1;
+               unsigned int nCommand = (unsigned int)(*pInputData++);
+               if (nCommand == 0x00) break;
+               nMatchOffset = (nCommand >> 1);
+               unsigned int nMatchLen = (nCommand & 1) + 2;
+               nFollowsLiteral = 2;
+               const unsigned char *pSrc = pCurOutData - nMatchOffset;
+               if (pSrc >= pOutData && (pCurOutData + nMatchLen) <= pOutDataEnd) {{
+                  while (nMatchLen--) *pCurOutData++ = *pSrc++;
+               }} else {{
+                  return (size_t)-1;
+               }}
+            }} else {{
+               int n4Bits = apultra_read_4bits(&pInputData, pInputDataEnd, &nCurBitMask, &bits);
+               if (n4Bits < 0) return (size_t)-1;
+               unsigned int nShortMatchOffset = (unsigned int)n4Bits;
+               nFollowsLiteral = 3;
+               if (nShortMatchOffset) {{
+                  const unsigned char *pSrc = pCurOutData - nShortMatchOffset;
+                  if (pSrc >= pOutData && pCurOutData < pOutDataEnd) {{
+                     *pCurOutData++ = *pSrc++;
+                  }} else {{
+                     return (size_t)-1;
+                  }}
+               }} else {{
+                  if (pCurOutData < pOutDataEnd) {{
+                     *pCurOutData++ = 0;
+                  }} else {{
+                     return (size_t)-1;
+                  }}
+               }}
+            }}
+         }}
+      }}
+   }}
+   return (size_t)(pCurOutData - pOutData);
+}}
 
 typedef struct {{
     lua_State* L;
@@ -355,6 +486,24 @@ static void LoadHeader(PropLoadState* S) {{
 int luaU_load_proprietary(lua_State* L, const uint8_t* buf, size_t size, const char* name) {{
 {envelope_check}
 
+    uint8_t* decomp_allocated = NULL;
+    if (PROP_COMPRESSION_APULTRA) {{
+        size_t max_out = size * 30 + 65536;
+        decomp_allocated = (uint8_t*)malloc(max_out);
+        if (!decomp_allocated) {{
+            fprintf(stderr, "Failed to allocate memory for decompression\\n");
+            return 1;
+        }}
+        size_t decomp_sz = apultra_decompress(buf, decomp_allocated, size, max_out);
+        if (decomp_sz == (size_t)-1) {{
+            free(decomp_allocated);
+            fprintf(stderr, "Failed to decompress apultra chunk\\n");
+            return 1;
+        }}
+        buf = decomp_allocated;
+        size = decomp_sz;
+    }}
+
     Mbuffer b;
     luaZ_initbuffer(L, &b);
 
@@ -373,6 +522,10 @@ int luaU_load_proprietary(lua_State* L, const uint8_t* buf, size_t size, const c
     cl->l.p = tf;
     setclvalue(L, L->top, cl);
     incr_top(L);
+
+    if (decomp_allocated) {{
+        free(decomp_allocated);
+    }}
 
     return 0;
 }}

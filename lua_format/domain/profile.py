@@ -83,6 +83,9 @@ class FormatProfile:
     string_encoding: str = "raw"       # "raw" | "xor"
     string_xor_key: int = 0x00
     
+    # Payload Compression ("none" | "apultra")
+    compression: str = "none"
+    
     # Multi-layer envelope framing (from gen_random_protocol)
     envelope: EnvelopeConfig = field(default_factory=EnvelopeConfig)
 
@@ -109,6 +112,7 @@ class FormatProfile:
             "strip_debug": self.strip_debug,
             "string_encoding": self.string_encoding,
             "string_xor_key": f"0x{self.string_xor_key:02X}",
+            "compression": self.compression,
             "envelope": {
                 "enabled": self.envelope.enabled,
                 "magic": f"0x{self.envelope.magic:08X}",
@@ -181,5 +185,6 @@ class FormatProfile:
             strip_debug=data.get("strip_debug", False),
             string_encoding=data.get("string_encoding", "raw"),
             string_xor_key=str_xor,
+            compression=data.get("compression", "none"),
             envelope=envelope
         )
